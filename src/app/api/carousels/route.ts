@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { query, execute } from "@/lib/db";
 import { generateCarousel } from "@/lib/claude";
 import { v4 as uuid } from "uuid";
 
@@ -15,20 +15,20 @@ export async function POST(req: NextRequest) {
     }
 
     const carousel = await generateCarousel(topic, angle, slideCount || 8);
-    const db = getDb();
     const id = uuid();
 
-    db.prepare(
+    await execute(
       `INSERT INTO carousels (id, user_id, account_id, title, slides, caption, hashtags, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')`
-    ).run(
-      id,
-      user.id,
-      accountId || null,
-      carousel.title,
-      JSON.stringify(carousel.slides),
-      carousel.caption,
-      JSON.stringify(carousel.hashtags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'draft')`,
+      [
+        id,
+        user.id,
+        accountId || null,
+        carousel.title,
+        JSON.stringify(carousel.slides),
+        carousel.caption,
+        JSON.stringify(carousel.hashtags),
+      ]
     );
 
     return NextResponse.json({ id, ...carousel });
@@ -42,15 +42,15 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM carousels WHERE user_id = ? ORDER BY created_at DESC LIMIT 20")
-    .all(user.id);
+  const rows = await query(
+    "SELECT * FROM carousels WHERE user_id = ? ORDER BY created_at DESC LIMIT 20",
+    [user.id]
+  );
 
-  const carousels = (rows as Record<string, unknown>[]).map((row) => ({
+  const carousels = rows.map((row) => ({
     ...row,
-    slides: JSON.parse(row.slides as string),
-    hashtags: row.hashtags ? JSON.parse(row.hashtags as string) : [],
+    slides: row.slides,
+    hashtags: row.hashtags ?? [],
   }));
 
   return NextResponse.json({ carousels });

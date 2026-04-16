@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { query, execute } from "@/lib/db";
 import { researchContent } from "@/lib/claude";
 import { v4 as uuid } from "uuid";
 
@@ -15,20 +15,20 @@ export async function POST(req: NextRequest) {
     }
 
     const research = await researchContent(topic);
-    const db = getDb();
     const id = uuid();
 
-    db.prepare(
+    await execute(
       `INSERT INTO content_research (id, user_id, topic, research_data, trends, content_angles, hashtags)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      id,
-      user.id,
-      topic,
-      JSON.stringify(research),
-      JSON.stringify(research.trends),
-      JSON.stringify(research.contentAngles),
-      JSON.stringify(research.hashtags)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        user.id,
+        topic,
+        JSON.stringify(research),
+        JSON.stringify(research.trends),
+        JSON.stringify(research.contentAngles),
+        JSON.stringify(research.hashtags),
+      ]
     );
 
     return NextResponse.json({ id, topic, ...research });
@@ -42,17 +42,17 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM content_research WHERE user_id = ? ORDER BY created_at DESC LIMIT 20")
-    .all(user.id);
+  const rows = await query(
+    "SELECT * FROM content_research WHERE user_id = ? ORDER BY created_at DESC LIMIT 20",
+    [user.id]
+  );
 
-  const research = (rows as Record<string, unknown>[]).map((row) => ({
+  const research = rows.map((row) => ({
     ...row,
-    research_data: JSON.parse(row.research_data as string),
-    trends: JSON.parse(row.trends as string),
-    content_angles: JSON.parse(row.content_angles as string),
-    hashtags: JSON.parse(row.hashtags as string),
+    research_data: row.research_data,
+    trends: row.trends,
+    content_angles: row.content_angles,
+    hashtags: row.hashtags,
   }));
 
   return NextResponse.json({ research });

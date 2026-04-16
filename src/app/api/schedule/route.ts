@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { query, execute } from "@/lib/db";
 import { v4 as uuid } from "uuid";
 
 export async function POST(req: NextRequest) {
@@ -16,21 +16,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
     const id = uuid();
 
-    db.prepare(
+    await execute(
       `INSERT INTO scheduled_posts (id, user_id, account_id, content_type, content_id, scheduled_at, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`
-    ).run(id, user.id, accountId, contentType, contentId, scheduledAt);
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+      [id, user.id, accountId, contentType, contentId, scheduledAt]
+    );
 
     // Update the content status
     if (contentType === "carousel") {
-      db.prepare("UPDATE carousels SET status = 'scheduled', scheduled_at = ?, account_id = ? WHERE id = ?")
-        .run(scheduledAt, accountId, contentId);
+      await execute(
+        "UPDATE carousels SET status = 'scheduled', scheduled_at = ?, account_id = ? WHERE id = ?",
+        [scheduledAt, accountId, contentId]
+      );
     } else if (contentType === "reel") {
-      db.prepare("UPDATE reels SET status = 'scheduled', scheduled_at = ?, account_id = ? WHERE id = ?")
-        .run(scheduledAt, accountId, contentId);
+      await execute(
+        "UPDATE reels SET status = 'scheduled', scheduled_at = ?, account_id = ? WHERE id = ?",
+        [scheduledAt, accountId, contentId]
+      );
     }
 
     return NextResponse.json({ id, status: "scheduled", scheduledAt });
@@ -44,16 +48,14 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const db = getDb();
-  const posts = db
-    .prepare(
-      `SELECT sp.*, ia.username as account_username
-       FROM scheduled_posts sp
-       LEFT JOIN instagram_accounts ia ON sp.account_id = ia.id
-       WHERE sp.user_id = ?
-       ORDER BY sp.scheduled_at ASC`
-    )
-    .all(user.id);
+  const posts = await query(
+    `SELECT sp.*, ia.username as account_username
+     FROM scheduled_posts sp
+     LEFT JOIN instagram_accounts ia ON sp.account_id = ia.id
+     WHERE sp.user_id = ?
+     ORDER BY sp.scheduled_at ASC`,
+    [user.id]
+  );
 
   return NextResponse.json({ posts });
 }
@@ -66,8 +68,7 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-  const db = getDb();
-  db.prepare("DELETE FROM scheduled_posts WHERE id = ? AND user_id = ?").run(id, user.id);
+  await execute("DELETE FROM scheduled_posts WHERE id = ? AND user_id = ?", [id, user.id]);
 
   return NextResponse.json({ ok: true });
 }

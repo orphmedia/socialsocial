@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { query, execute } from "@/lib/db";
 import { generateReel } from "@/lib/claude";
 import { v4 as uuid } from "uuid";
 
@@ -15,24 +15,24 @@ export async function POST(req: NextRequest) {
     }
 
     const reel = await generateReel(topic, angle, durationSeconds || 30);
-    const db = getDb();
     const id = uuid();
 
-    db.prepare(
+    await execute(
       `INSERT INTO reels (id, user_id, account_id, title, hook, script, cta, caption, hashtags, music_suggestion, duration_seconds, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`
-    ).run(
-      id,
-      user.id,
-      accountId || null,
-      reel.title,
-      reel.hook,
-      JSON.stringify(reel.script),
-      reel.cta,
-      reel.caption,
-      JSON.stringify(reel.hashtags),
-      reel.musicSuggestion,
-      durationSeconds || 30
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
+      [
+        id,
+        user.id,
+        accountId || null,
+        reel.title,
+        reel.hook,
+        JSON.stringify(reel.script),
+        reel.cta,
+        reel.caption,
+        JSON.stringify(reel.hashtags),
+        reel.musicSuggestion,
+        durationSeconds || 30,
+      ]
     );
 
     return NextResponse.json({ id, ...reel });
@@ -46,15 +46,15 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const db = getDb();
-  const rows = db
-    .prepare("SELECT * FROM reels WHERE user_id = ? ORDER BY created_at DESC LIMIT 20")
-    .all(user.id);
+  const rows = await query(
+    "SELECT * FROM reels WHERE user_id = ? ORDER BY created_at DESC LIMIT 20",
+    [user.id]
+  );
 
-  const reels = (rows as Record<string, unknown>[]).map((row) => ({
+  const reels = rows.map((row) => ({
     ...row,
-    script: JSON.parse(row.script as string),
-    hashtags: row.hashtags ? JSON.parse(row.hashtags as string) : [],
+    script: row.script,
+    hashtags: row.hashtags ?? [],
   }));
 
   return NextResponse.json({ reels });

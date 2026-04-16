@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { query, queryOne, execute } from "./db";
 import { v4 as uuid } from "uuid";
 import { cookies } from "next/headers";
 
@@ -23,13 +23,13 @@ export async function createUser(
   name: string,
   password: string
 ): Promise<User> {
-  const db = getDb();
   const id = uuid();
   const passwordHash = await hashPassword(password);
 
-  db.prepare(
-    "INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)"
-  ).run(id, email, name, passwordHash);
+  await execute(
+    "INSERT INTO users (id, email, name, password_hash) VALUES (?, ?, ?, ?)",
+    [id, email, name, passwordHash]
+  );
 
   return { id, email, name };
 }
@@ -38,14 +38,14 @@ export async function verifyUser(
   email: string,
   password: string
 ): Promise<User | null> {
-  const db = getDb();
   const passwordHash = await hashPassword(password);
 
-  const row = db
-    .prepare("SELECT id, email, name FROM users WHERE email = ? AND password_hash = ?")
-    .get(email, passwordHash) as User | undefined;
+  const row = await queryOne(
+    "SELECT id, email, name FROM users WHERE email = ? AND password_hash = ?",
+    [email, passwordHash]
+  );
 
-  return row || null;
+  return row ? (row as unknown as User) : null;
 }
 
 export async function getCurrentUser(): Promise<User | null> {
@@ -57,11 +57,11 @@ export async function getCurrentUser(): Promise<User | null> {
     const session = JSON.parse(
       Buffer.from(sessionCookie.value, "base64").toString()
     );
-    const db = getDb();
-    const user = db
-      .prepare("SELECT id, email, name FROM users WHERE id = ?")
-      .get(session.userId) as User | undefined;
-    return user || null;
+    const user = await queryOne(
+      "SELECT id, email, name FROM users WHERE id = ?",
+      [session.userId]
+    );
+    return user ? (user as unknown as User) : null;
   } catch {
     return null;
   }

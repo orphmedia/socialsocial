@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { query, execute } from "@/lib/db";
 import { getOAuthUrl, exchangeCodeForToken, getLongLivedToken, getInstagramAccounts } from "@/lib/instagram";
 import { v4 as uuid } from "uuid";
 
@@ -9,10 +9,10 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const db = getDb();
-  const accounts = db
-    .prepare("SELECT id, instagram_id, username, profile_picture_url, followers_count, is_active, created_at FROM instagram_accounts WHERE user_id = ?")
-    .all(user.id);
+  const accounts = await query(
+    "SELECT id, instagram_id, username, profile_picture_url, followers_count, is_active, created_at FROM instagram_accounts WHERE user_id = ?",
+    [user.id]
+  );
 
   return NextResponse.json({ accounts });
 }
@@ -43,17 +43,19 @@ export async function POST(req: NextRequest) {
       // Get Instagram accounts
       const igAccounts = await getInstagramAccounts(longToken);
 
-      const db = getDb();
       const connected = [];
 
       for (const account of igAccounts) {
         const id = uuid();
-        db.prepare(
-          `INSERT OR REPLACE INTO instagram_accounts (id, user_id, instagram_id, username, access_token, profile_picture_url, followers_count)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          id, user.id, account.id, account.username, longToken,
-          account.profile_picture_url, account.followers_count
+        await execute(
+          `INSERT INTO instagram_accounts (id, user_id, instagram_id, username, access_token, profile_picture_url, followers_count)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (user_id, instagram_id) DO UPDATE SET
+             username = EXCLUDED.username,
+             access_token = EXCLUDED.access_token,
+             profile_picture_url = EXCLUDED.profile_picture_url,
+             followers_count = EXCLUDED.followers_count`,
+          [id, user.id, account.id, account.username, longToken, account.profile_picture_url, account.followers_count]
         );
         connected.push({ id, username: account.username, followers_count: account.followers_count });
       }
